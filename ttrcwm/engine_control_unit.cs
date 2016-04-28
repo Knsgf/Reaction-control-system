@@ -162,17 +162,27 @@ namespace ttrcwm
             //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
             //    return;
 
-            var torque = Vector3.Zero;
+            var   torque = Vector3.Zero;
+            float current_strength;
+
             foreach (var cur_direction in _thrusters)
             {
                 foreach (var cur_thruster in cur_direction)
                 {
                     if (cur_thruster.Key.IsWorking)
-                        torque += cur_thruster.Value.max_torque * cur_thruster.Key.CurrentStrength;
+                    {
+                        current_strength = cur_thruster.Key.CurrentStrength;
+                        // RC autopilot, yor're cheaty b****rd!
+                        if (current_strength > 1.0f)
+                            current_strength = 1.0f;
+                        else if (current_strength < 0.0f)
+                            current_strength = 0.0f;
+                        torque += cur_thruster.Value.max_torque * current_strength;
+                    }
                 }
             }
 
-            if (!_is_gyro_override_active && _manual_rotation.LengthSquared() <= 0.0001f)
+            if (!_is_gyro_override_active && _manual_rotation.LengthSquared() <= 0.0001f || autopilot_on)
             {
                 float gyro_limit = _max_gyro_torque - _local_angular_velocity.Length() * _spherical_moment_of_inertia;
 
