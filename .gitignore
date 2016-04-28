@@ -1,0 +1,5 @@
+*.suo
+*.sln
+ttrcwm/Properties/
+ttrcwm/obj/
+*.csproj
