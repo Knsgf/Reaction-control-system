@@ -2,6 +2,7 @@
 
 using Sandbox.Engine.Utils;
 using Sandbox.ModAPI;
+using VRage;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
 
@@ -67,7 +68,13 @@ namespace ttrcwm
 
         public static void handle_60Hz()
         {
-            is_spectator_mode_on = MyAPIGateway.Session != null && MyAPIGateway.Session.SessionSettings.EnableSpectator && MyAPIGateway.Session.CameraController is MySpectatorCameraController;
+            is_spectator_mode_on = false;
+            if (MyAPIGateway.Session.SessionSettings.EnableSpectator)
+            {
+                var spectator_controller = MyAPIGateway.Session.CameraController as MySpectatorCameraController;
+                if (spectator_controller != null)
+                    is_spectator_mode_on = spectator_controller.SpectatorCameraMovement == MySpectatorCameraMovementEnum.UserControlled;
+            }
 
             local_player = MyAPIGateway.Session.LocalHumanPlayer;
             local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
