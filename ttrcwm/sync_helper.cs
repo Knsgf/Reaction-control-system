@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-using Sandbox.Game;
+using Sandbox.Engine.Utils;
 using Sandbox.ModAPI;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
@@ -67,19 +67,9 @@ namespace ttrcwm
 
         public static void handle_60Hz()
         {
-            if (MyAPIGateway.Session.SessionSettings.EnableSpectator && MyAPIGateway.Input != null)
-            {
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_FREE))
-                    is_spectator_mode_on = true;
-                else if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_NONE)
-                         || MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_DELTA)
-                         || MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_STATIC))
-                {
-                    is_spectator_mode_on = false;
-                }
-            }
+            is_spectator_mode_on = MyAPIGateway.Session != null && MyAPIGateway.Session.SessionSettings.EnableSpectator && MyAPIGateway.Session.CameraController is MySpectatorCameraController;
 
-            local_player     = MyAPIGateway.Session.LocalHumanPlayer;
+            local_player = MyAPIGateway.Session.LocalHumanPlayer;
             local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
         }
     }
