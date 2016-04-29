@@ -529,7 +529,6 @@ namespace ttrcwm
 
             //int num_thr = 0, num_nc_thr = 0;
 
-            refresh_real_max_forces();
             foreach (var cur_direction in _thrusters)
             {
                 thruster_info cur_thruster_info;
@@ -885,7 +884,7 @@ namespace ttrcwm
                 refresh_control_sets();
                 //log_ECU_action("handle_4Hz", "CoM refreshed");
             }
-            //refresh_real_max_forces();
+            refresh_real_max_forces();
         }
 
         public void handle_2s_period()
