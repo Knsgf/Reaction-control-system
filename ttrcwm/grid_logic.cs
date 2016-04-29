@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Sandbox.Game;
 using Sandbox.Game.Gui;
 using Sandbox.ModAPI;
+using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
 using VRage.Input;
@@ -29,7 +30,7 @@ namespace ttrcwm
         private Vector3UByte                   _prev_manual_rotation = new Vector3UByte(128, 128, 128);
 
         private int  _num_thrusters = 0;
-        private bool _disposed = false;
+        private bool _disposed = false, _ID_on;
 
         #endregion
 
@@ -193,6 +194,14 @@ namespace ttrcwm
                 }
                 else if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     handle_user_input(controlling_player.Controller.ControlledEntity);
+
+                foreach (var cur_controller in _ship_controllers)
+                {
+                    _ID_on = cur_controller.EnabledDamping;
+                    break;
+                }
+                _ECU.linear_dampers_on = _ID_on;
+
                 _ECU.handle_60Hz();
             }
         }
@@ -224,6 +233,7 @@ namespace ttrcwm
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
             sync_helper.register_logic_object(this, _grid.EntityId);
+            _ID_on = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).DampenersEnabled;
 
             var block_list = new List<IMySlimBlock>();
             _grid.GetBlocks(block_list,
