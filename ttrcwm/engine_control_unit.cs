@@ -165,6 +165,8 @@ namespace ttrcwm
         {
             //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
             //    return;
+            const float MIN_TORQUE = 10.0f;
+
 
             Vector3 torque = Vector3.Zero, useful_torque, parasitic_torque;
             float   current_strength;
@@ -173,7 +175,7 @@ namespace ttrcwm
             {
                 foreach (var cur_thruster in cur_direction)
                 {
-                    if (cur_thruster.Key.IsWorking)
+                    //if (cur_thruster.Key.IsWorking)
                     {
                         current_strength = cur_thruster.Key.CurrentStrength;
                         // RC autopilot, yor're cheaty b****rd!
@@ -222,8 +224,11 @@ namespace ttrcwm
             else
                 parasitic_torque -= Vector3.Normalize(parasitic_torque) * gyro_limit;
 
-            torque = Vector3.Transform(useful_torque + parasitic_torque, _grid.WorldMatrix.GetOrientation());
-            _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, torque);
+            if (torque.LengthSquared() > MIN_TORQUE * MIN_TORQUE)
+            {
+                torque = Vector3.Transform(useful_torque + parasitic_torque, _grid.WorldMatrix.GetOrientation());
+                _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, torque);
+            }
         }
 
         #endregion
@@ -378,7 +383,7 @@ namespace ttrcwm
 
         private void handle_thrust_control()
         {
-            const float DAMPING_CONSTANT = 20.0f;
+            const float DAMPING_CONSTANT = 5.0f;
 
             foreach (var cur_direction in _thrusters)
             {
@@ -390,11 +395,11 @@ namespace ttrcwm
             }
 
             Matrix inverse_world_rotation = _inverse_world_transform.GetOrientation();
-            _local_angular_velocity        = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
+            _local_angular_velocity       = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
             if (_manual_rotation.LengthSquared() > 0.0001f)
             {
                 _rotation_active = true;
-                decompose_vector(_manual_rotation * 15.0f, __control_vector);
+                decompose_vector(_manual_rotation * 6.0f, __control_vector);
             }
             else if (_local_angular_velocity.LengthSquared() > 0.0001f)
                 decompose_vector(-_local_angular_velocity, __control_vector);
@@ -415,7 +420,7 @@ namespace ttrcwm
             else
             {
                 linear_acceleration -= _grid.Physics.Gravity;   // Use proper, i. e. free-fall-relative acceleration when dampers are off
-                local_gravity_force        = Vector3.Zero;
+                local_gravity_force  = Vector3.Zero;
             }
             linear_acceleration = Vector3.Transform(linear_acceleration, inverse_world_rotation);
             decompose_vector( linear_acceleration, __acceleration   );
@@ -874,7 +879,7 @@ namespace ttrcwm
 
             calc_spherical_moment_of_inertia();
             refresh_gyro_info();
-            var current_grid_CoM = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _inverse_world_transform);
+            var  current_grid_CoM = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _inverse_world_transform);
             bool CoM_shifted      = (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
             if (CoM_shifted)
             {
