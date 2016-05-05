@@ -20,6 +20,7 @@ namespace ttrcwm
         #region fields
 
         const float MESSAGE_MULTIPLIER = 10.0f, MESSAGE_SHIFT = 128.0f;
+        const int   CONTROLS_TIMEOUT = 2;
 
         private static byte[] long_message  = new byte[8 + 3];
 
@@ -29,7 +30,7 @@ namespace ttrcwm
         private engine_control_unit            _ECU                  = null;
         private Vector3UByte                   _prev_manual_rotation = new Vector3UByte(128, 128, 128);
 
-        private int  _num_thrusters = 0;
+        private int  _num_thrusters = 0, _zero_controls_counter = 0;
         private bool _disposed = false, _ID_on;
 
         #endregion
@@ -133,6 +134,7 @@ namespace ttrcwm
             manual_rotation.Y = (argument[ 9] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
             manual_rotation.Z = (argument[10] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
             instance._ECU.translate_rotation_input(manual_rotation, controlling_player.Controller.ControlledEntity);
+            instance._zero_controls_counter = 0;
         }
 
         #endregion
@@ -179,6 +181,7 @@ namespace ttrcwm
             }
             send_rotation_message(manual_rotation);
             _ECU.translate_rotation_input(manual_rotation, controller);
+            _zero_controls_counter = 0;
         }
 
         public void handle_60Hz()
@@ -195,10 +198,11 @@ namespace ttrcwm
                 else if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     handle_user_input(controlling_player.Controller.ControlledEntity);
 
+                _ID_on = false;
                 foreach (var cur_controller in _ship_controllers)
                 {
-                    _ID_on = cur_controller.EnabledDamping;
-                    break;
+                    _ID_on |= cur_controller.EnabledDamping;
+                    //break;
                 }
                 _ECU.linear_dampers_on = _ID_on;
 
@@ -224,7 +228,18 @@ namespace ttrcwm
         {
             check_disposed();
             if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
+            {
                 _ECU.handle_2s_period();
+
+                if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+                    _prev_manual_rotation = new Vector3UByte(128, 128, 128);
+                else if (_zero_controls_counter++ >= CONTROLS_TIMEOUT)
+                {
+                    _ECU.reset_user_input(reset_gyros_only: false);
+                    _prev_manual_rotation  = new Vector3UByte(128, 128, 128);
+                    _zero_controls_counter = 0;
+                }
+            }
         }
 
         public grid_logic(IMyCubeGrid new_grid)

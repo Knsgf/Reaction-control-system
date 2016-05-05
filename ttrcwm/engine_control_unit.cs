@@ -71,8 +71,8 @@ namespace ttrcwm
         private MatrixD  _inverse_world_transform;
         private float    _max_gyro_torque = 0.0f, _spherical_moment_of_inertia;
 
-        private Vector3 _manual_rotation, _target_rotation, _gyro_override = Vector3.Zero, _prev_linear_velocity = Vector3.Zero, _local_angular_velocity;
-        private bool    _is_gyro_override_active = false, _all_engines_off = false, _under_player_control = false, _was_dry_run = false, _rotation_active = false, _thruster_added_or_removed = false;
+        private Vector3 _manual_rotation, _prev_rotation, _target_rotation, _gyro_override = Vector3.Zero, _prev_linear_velocity = Vector3.Zero, _local_angular_velocity;
+        private bool    _is_gyro_override_active = false, _all_engines_off = false, _under_player_control = false, _rotation_active = false, _thruster_added_or_removed = false, _force_override_refresh = false;
 
         private Vector3[] _rotation_samples = new Vector3[NUM_ROTATION_SAMPLES];
         private Vector3   _sample_sum       = Vector3.Zero;
@@ -165,8 +165,8 @@ namespace ttrcwm
         {
             //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
             //    return;
-            const float MIN_TORQUE = 10.0f;
-
+            //const float MIN_TORQUE = 10.0f;
+            const float MIN_ANGULAR_ACCELERATION = (float) (0.1 * Math.PI / 180.0);
 
             Vector3 torque = Vector3.Zero, useful_torque, parasitic_torque;
             float   current_strength;
@@ -195,6 +195,7 @@ namespace ttrcwm
             }
             else
             {
+                /*
                 Vector3 reference_vector = (_manual_rotation.LengthSquared() > 0.0001f) ? _manual_rotation : _local_angular_velocity;
                 if (reference_vector.LengthSquared() > 0.0001f)
                 {
@@ -206,9 +207,33 @@ namespace ttrcwm
                     useful_torque    = torque;
                     parasitic_torque = Vector3.Zero;
                 }
+                */
+
+                float manual_rotation_length2 = _manual_rotation.LengthSquared(), angular_velocity_length2 = _local_angular_velocity.LengthSquared();
+
+                if (manual_rotation_length2 <= 0.0001f)
+                    useful_torque = Vector3.Zero;
+                else
+                {
+                    float projection_dot_product = Vector3.Dot(torque, _manual_rotation);
+
+                    useful_torque = (projection_dot_product > 0.0f) ? ((projection_dot_product / manual_rotation_length2) * _manual_rotation) : Vector3.Zero;
+                }
+                Vector3 leftover_torque = torque - useful_torque;
+                if (angular_velocity_length2 > 0.0001f)
+                {
+                    float projection_dot_product = Vector3.Dot(leftover_torque, _local_angular_velocity);
+
+                    if (projection_dot_product < 0.0f)
+                        useful_torque += (projection_dot_product / angular_velocity_length2) * _local_angular_velocity;
+                }
+                parasitic_torque = torque - useful_torque;
             }
 
+            //screen_text("", string.Format("UT = {0:F4} MN*m, PT = {1:F4} MN*m", useful_torque.Length() / 1.0E+6f, parasitic_torque.Length() / 1.0E+6f), 16, controlled_only: true);
+
             float gyro_limit = _max_gyro_torque;
+            /*
             if (_is_gyro_override_active || _manual_rotation.LengthSquared() <= 0.0001f)
             {
                 Vector3 angular_velocity_diff = _local_angular_velocity;
@@ -216,17 +241,19 @@ namespace ttrcwm
                 if (_is_gyro_override_active)
                     angular_velocity_diff -= _gyro_override;
                 gyro_limit -= angular_velocity_diff.Length() * _spherical_moment_of_inertia;
-                if (gyro_limit < 0.0f)
-                    gyro_limit = 0.0f;
             }
-            if (parasitic_torque.LengthSquared() <= gyro_limit * gyro_limit || parasitic_torque.LengthSquared() < 1.0f)
+            */
+            if (gyro_limit < 1.0f)
+                gyro_limit = 1.0f;
+            if (parasitic_torque.LengthSquared() <= gyro_limit * gyro_limit)
                 parasitic_torque = Vector3.Zero;
             else
                 parasitic_torque -= Vector3.Normalize(parasitic_torque) * gyro_limit;
 
-            if (torque.LengthSquared() > MIN_TORQUE * MIN_TORQUE)
+            torque = useful_torque + parasitic_torque;
+            if (torque.LengthSquared() > MIN_ANGULAR_ACCELERATION * MIN_ANGULAR_ACCELERATION * _spherical_moment_of_inertia * _spherical_moment_of_inertia)
             {
-                torque = Vector3.Transform(useful_torque + parasitic_torque, _grid.WorldMatrix.GetOrientation());
+                torque = Vector3.Transform(torque, _grid.WorldMatrix.GetOrientation());
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, torque);
             }
         }
@@ -268,7 +295,7 @@ namespace ttrcwm
                 __cur_firing_vector[dir_index] = 1.0f;
                 recompose_vector(__cur_firing_vector, out sample_vector);
                 decompose_vector(Vector3.Cross(sample_vector, reference_norm), __linear_component);
-                if (__linear_component[(int)cur_thruster_info.nozzle_direction] >= 0.1f)
+                if (__linear_component[(int)cur_thruster_info.nozzle_direction] > 0.0f)
                     _control_sets[dir_index].Add(cur_thruster_info);
                 __cur_firing_vector[dir_index++] = 0.0f;
             }
@@ -290,31 +317,34 @@ namespace ttrcwm
         {
             float         setting;
             int           setting_int;
-            bool          dry_run = false;
+            bool          dry_run;
             thruster_info cur_thruster_info;
 
-            if (reset_all_thrusters && _all_engines_off)
+            if (reset_all_thrusters && _all_engines_off && !_force_override_refresh)
                 return;
-            if (MyAPIGateway.Multiplayer != null)
+
+            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                dry_run = false;
+            else
             {
-                if (MyAPIGateway.Multiplayer.IsServer)
-                {
-                    if (_under_player_control && (sync_helper.local_player == null || !MyAPIGateway.Multiplayer.IsServerPlayer(sync_helper.local_player.Client)))
-                        dry_run = true;
-                }
-                else if (sync_helper.local_player == null || !is_under_control_of(sync_helper.local_controller))
-                    dry_run = true;
+                bool is_rotation_small = (_manual_rotation - _prev_rotation).LengthSquared() < 0.0001f;
+
+                dry_run = !_force_override_refresh || is_rotation_small;
+                if (!is_rotation_small)
+                    _prev_rotation = _manual_rotation;
             }
 
-            bool force_update = !dry_run && _was_dry_run;
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
                 foreach (var cur_thruster in _thrusters[dir_index])
                 {
                     cur_thruster_info = cur_thruster.Value;
+                    if (_force_override_refresh)
+                        cur_thruster_info.prev_setting = (int) Math.Ceiling(cur_thruster.Key.CurrentStrength * 100.0f);
+
                     if (reset_all_thrusters || !cur_thruster_info.is_RCS || cur_thruster_info.actual_max_force < 1.0f || !cur_thruster.Key.IsWorking)
                     {
-                        if (cur_thruster_info.prev_setting != 0 || force_update)
+                        if (cur_thruster_info.prev_setting != 0)
                         {
                             if (!dry_run)
                                 cur_thruster.Key.SetValueFloat("Override", 0.0f);
@@ -325,7 +355,7 @@ namespace ttrcwm
 
                     setting     = cur_thruster_info.current_setting * 100.0f;
                     setting_int = (int) Math.Ceiling(setting);
-                    if (setting_int != cur_thruster_info.prev_setting || force_update)
+                    if (setting_int != cur_thruster_info.prev_setting)
                     {
                         if (!dry_run)
                             cur_thruster.Key.SetValueFloat("Override", setting);
@@ -334,8 +364,8 @@ namespace ttrcwm
                 }
             }
 
-            _all_engines_off = reset_all_thrusters;
-            _was_dry_run     = dry_run;
+            _all_engines_off        = reset_all_thrusters;
+            _force_override_refresh = false;
         }
 
         // Ensures that resulting linear force is zero (to prevent undesired drift when turning)
@@ -383,7 +413,7 @@ namespace ttrcwm
 
         private void handle_thrust_control()
         {
-            const float DAMPING_CONSTANT = 5.0f;
+            const float DAMPING_CONSTANT = 10.0f;
 
             foreach (var cur_direction in _thrusters)
             {
@@ -394,23 +424,31 @@ namespace ttrcwm
                 }
             }
 
-            Matrix inverse_world_rotation = _inverse_world_transform.GetOrientation();
-            _local_angular_velocity       = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
-            if (_manual_rotation.LengthSquared() > 0.0001f)
-            {
-                _rotation_active = true;
-                decompose_vector(_manual_rotation * 6.0f, __control_vector);
-            }
-            else if (_local_angular_velocity.LengthSquared() > 0.0001f)
-                decompose_vector(-_local_angular_velocity, __control_vector);
+            Matrix inverse_world_rotation   = _inverse_world_transform.GetOrientation();
+            _local_angular_velocity         = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
+            float   manual_rotation_length2 = _manual_rotation.LengthSquared();
+            Vector3 desirted_angular_velocity;
+            if (manual_rotation_length2 <= 0.0001f)
+                desirted_angular_velocity = -_local_angular_velocity;
             else
-                _rotation_active = false;
+            {
+                float   projection_dot_prduct     = Vector3.Dot(_local_angular_velocity, _manual_rotation);
+                Vector3 local_velocity_projection = (projection_dot_prduct / manual_rotation_length2) * _manual_rotation,
+                        local_velocity_rejection  = _local_angular_velocity - local_velocity_projection;
+
+                if (projection_dot_prduct < 0.0f)
+                    local_velocity_projection = Vector3.Zero;
+                desirted_angular_velocity = _manual_rotation * 2.0f + local_velocity_projection - local_velocity_rejection;
+            }
+
+            _rotation_active = desirted_angular_velocity.LengthSquared() > 0.0001f;
             if (!_rotation_active || _is_gyro_override_active || autopilot_on)
             {
                 _prev_linear_velocity = _grid.Physics.LinearVelocity;
                 apply_thrust_settings(reset_all_thrusters: true);
                 return;
             }
+            decompose_vector(desirted_angular_velocity, __control_vector);
 
             Vector3 linear_acceleration = (_grid.Physics.LinearVelocity - _prev_linear_velocity) * MyEngineConstants.UPDATE_STEPS_PER_SECOND;
             _prev_linear_velocity       = _grid.Physics.LinearVelocity;
@@ -897,6 +935,7 @@ namespace ttrcwm
             if (_grid.Physics == null)
                 return;
             check_thruster_control_changed();
+            _force_override_refresh = true;
         }
     }
 }
