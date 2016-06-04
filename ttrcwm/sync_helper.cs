@@ -15,7 +15,7 @@ namespace ttrcwm
         private static Dictionary<long, grid_logic> entities = new Dictionary<long, grid_logic>();
 
         public static bool network_handlers_registered { get; private set; }
-        public static bool        is_spectator_mode_on { get; private set; }
+        //public static bool        is_spectator_mode_on { get; private set; }
 
         public static IMyPlayer             local_player     { get; private set; }
         public static IMyControllableEntity local_controller { get; private set; }
@@ -68,6 +68,7 @@ namespace ttrcwm
 
         public static void handle_60Hz()
         {
+            /*
             is_spectator_mode_on = false;
             if (MyAPIGateway.Session.SessionSettings.EnableSpectator)
             {
@@ -75,8 +76,9 @@ namespace ttrcwm
                 if (spectator_controller != null)
                     is_spectator_mode_on = spectator_controller.SpectatorCameraMovement == MySpectatorCameraMovementEnum.UserControlled;
             }
+            */
 
-            local_player = MyAPIGateway.Session.LocalHumanPlayer;
+            local_player     = MyAPIGateway.Session.LocalHumanPlayer;
             local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
         }
     }

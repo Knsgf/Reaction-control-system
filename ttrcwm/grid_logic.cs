@@ -165,6 +165,7 @@ namespace ttrcwm
 
             if (_ECU == null)
                 return;
+            /*
             if (sync_helper.is_spectator_mode_on || MyGuiScreenTerminal.GetCurrentScreen() != MyTerminalPageEnum.None || MyGuiScreenGamePlay.ActiveGameplayScreen != null)
                 manual_rotation = Vector3.Zero;
             else
@@ -179,6 +180,14 @@ namespace ttrcwm
                     manual_rotation.Z = MyAPIGateway.Input.GetRoll();
                 }
             }
+            */
+
+            var ship_controller = (Sandbox.Game.Entities.MyShipController) controller;
+
+            manual_rotation.X = ship_controller.RotationIndicator.X;
+            manual_rotation.Y = ship_controller.RotationIndicator.Y;
+            manual_rotation.Z = ship_controller.RollIndicator;
+
             send_rotation_message(manual_rotation);
             _ECU.translate_rotation_input(manual_rotation, controller);
             _zero_controls_counter = 0;
