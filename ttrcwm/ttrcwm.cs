@@ -18,7 +18,7 @@ namespace ttrcwm
         private grid_handler _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null;
 
         private int  _count15 = 0, _count8 = 0;
-        private bool _entity_events_set = false, _announced = false;
+        private bool _entity_events_set = false;
 
         private void log_session_action(string method_name, string message)
         {

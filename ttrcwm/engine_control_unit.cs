@@ -20,7 +20,7 @@ namespace ttrcwm
     {
         #region fields
 
-        const int   NUM_ROTATION_SAMPLES = 6;
+        const int   NUM_ROTATION_SAMPLES = 6, PHYSICS_ENABLE_DELAY = 6;
         const float MAX_ACCELERATION     = 0.2f;
 
         enum thrust_dir { fore = 0, aft = 3, starboard = 1, port = 4, dorsal = 2, ventral = 5 };
@@ -31,7 +31,7 @@ namespace ttrcwm
             public thrust_dir nozzle_direction;
             public float      current_setting;
             public int        prev_setting;
-            public bool       is_RCS, override_cleared;
+            public bool       is_RCS, group_no_RCS, override_cleared;
         };
 
         private static float[] __control_vector    = new float[6];
@@ -72,11 +72,12 @@ namespace ttrcwm
         private float    _max_gyro_torque = 0.0f, _spherical_moment_of_inertia;
 
         private Vector3 _manual_rotation, _prev_rotation, _target_rotation, _gyro_override = Vector3.Zero, _prev_linear_velocity = Vector3.Zero, _local_angular_velocity;
-        private bool    _is_gyro_override_active = false, _all_engines_off = false, _under_player_control = false, _rotation_active = false, _thruster_added_or_removed = false, _force_override_refresh = false;
+        private bool    _is_gyro_override_active = false, _all_engines_off = false, _under_player_control = false, _rotation_active = false, _thruster_added_or_removed = false;
+        private bool    _force_override_refresh = false;
 
         private Vector3[] _rotation_samples = new Vector3[NUM_ROTATION_SAMPLES];
         private Vector3   _sample_sum       = Vector3.Zero;
-        private int       _current_index    = 0;
+        private int       _current_index    = 0, _physics_enable_delay = PHYSICS_ENABLE_DELAY;
 
         #endregion
 
@@ -251,7 +252,9 @@ namespace ttrcwm
                 parasitic_torque -= Vector3.Normalize(parasitic_torque) * gyro_limit;
 
             torque = useful_torque + parasitic_torque;
-            if (torque.LengthSquared() > MIN_ANGULAR_ACCELERATION * MIN_ANGULAR_ACCELERATION * _spherical_moment_of_inertia * _spherical_moment_of_inertia)
+            if (_physics_enable_delay > 0)
+                --_physics_enable_delay;
+            else if (torque.LengthSquared() > MIN_ANGULAR_ACCELERATION * MIN_ANGULAR_ACCELERATION * _spherical_moment_of_inertia * _spherical_moment_of_inertia)
             {
                 torque = Vector3.Transform(torque, _grid.WorldMatrix.GetOrientation());
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, torque);
@@ -339,9 +342,11 @@ namespace ttrcwm
                 foreach (var cur_thruster in _thrusters[dir_index])
                 {
                     cur_thruster_info = cur_thruster.Value;
+                    if (cur_thruster_info.group_no_RCS)
+                        continue;
+
                     if (_force_override_refresh)
                         cur_thruster_info.prev_setting = (int) Math.Ceiling(cur_thruster.Key.CurrentStrength * 100.0f);
-
                     if (reset_all_thrusters || !cur_thruster_info.is_RCS || cur_thruster_info.actual_max_force < 1.0f || !cur_thruster.Key.IsWorking)
                     {
                         if (cur_thruster_info.prev_setting != 0)
@@ -570,39 +575,17 @@ namespace ttrcwm
         {
             bool changes_made = false;
 
-            //int num_thr = 0, num_nc_thr = 0;
-
             foreach (var cur_direction in _thrusters)
             {
-                thruster_info cur_thruster_info;
-
                 foreach (var cur_thruster in cur_direction)
-                {
-                    cur_thruster_info = cur_thruster.Value;
-                    if (cur_thruster_info.actual_max_force >= 0.01f * cur_thruster_info.max_force && cur_thruster.Key.IsWorking)
-                    {
-                        if (!cur_thruster_info.is_RCS)
-                            cur_thruster_info.is_RCS = changes_made = true;
-                    }
-                    else
-                    {
-                        if (!cur_thruster_info.override_cleared)
-                        {
-                            cur_thruster.Key.SetValueFloat("Override", 0.0f);
-                            cur_thruster_info.override_cleared = changes_made = true;
-                        }
-                        cur_thruster_info.is_RCS = false;
-                    }
-                    //++num_thr;
-                }
+                    cur_thruster.Value.group_no_RCS = false;
             }
 
             List<MyObjectBuilder_BlockGroup> all_groups = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).BlockGroups;
             foreach (var cur_group in all_groups)
             {
-                IMySlimBlock  cur_block;
-                MyThrust      cur_thruster;
-                thruster_info cur_thruster_info;
+                IMySlimBlock cur_block;
+                MyThrust     cur_thruster;
 
                 if (cur_group.Name.ToUpper().Contains("[NO RCS]"))
                 {
@@ -618,17 +601,34 @@ namespace ttrcwm
                         {
                             if (cur_direction.ContainsKey(cur_thruster))
                             {
-                                cur_thruster_info = cur_direction[cur_thruster];
-                                if (!cur_thruster_info.override_cleared)
-                                {
-                                    cur_thruster.SetValueFloat("Override", 0.0f);
-                                    cur_thruster_info.override_cleared = changes_made = true;
-                                }
-                                cur_thruster_info.is_RCS = false;
-                                //++num_nc_thr;
+                                cur_direction[cur_thruster].group_no_RCS = true;
                                 break;
                             }
                         }
+                    }
+                }
+            }
+
+            foreach (var cur_direction in _thrusters)
+            {
+                thruster_info cur_thruster_info;
+
+                foreach (var cur_thruster in cur_direction)
+                {
+                    cur_thruster_info = cur_thruster.Value;
+                    if (cur_thruster_info.actual_max_force >= 0.01f * cur_thruster_info.max_force && cur_thruster.Key.IsWorking)
+                    {
+                        if (!cur_thruster_info.is_RCS && !cur_thruster_info.group_no_RCS)
+                            cur_thruster_info.is_RCS = changes_made = true;
+                    }
+                    else
+                    {
+                        if (!cur_thruster_info.override_cleared)
+                        {
+                            cur_thruster.Key.SetValueFloat("Override", 0.0f);
+                            cur_thruster_info.override_cleared = changes_made = true;
+                        }
+                        cur_thruster_info.is_RCS = false;
                     }
                 }
             }
@@ -646,6 +646,7 @@ namespace ttrcwm
                             _max_force[dir_index] += cur_thruster_info.max_force;
                     }
                 }
+                /*
                 log_ECU_action("check_thruster_control_changed", string.Format("{0}/{1}/{2}/{3}/{4}/{5} kN",
                     _max_force[(int) thrust_dir.fore     ] / 1000.0f,
                     _max_force[(int) thrust_dir.aft      ] / 1000.0f,
@@ -653,6 +654,7 @@ namespace ttrcwm
                     _max_force[(int) thrust_dir.port     ] / 1000.0f,
                     _max_force[(int) thrust_dir.dorsal   ] / 1000.0f,
                     _max_force[(int) thrust_dir.ventral  ] / 1000.0f));
+                */
             }
             if (changes_made || _thruster_added_or_removed)
             {
@@ -728,7 +730,7 @@ namespace ttrcwm
             new_thruster.static_moment    = new_thruster.grid_centre_pos * new_thruster.max_force;
             new_thruster.nozzle_direction = get_nozzle_orientation(thruster);
             new_thruster.override_cleared = false;
-            new_thruster.is_RCS           = _thruster_added_or_removed = true;
+            new_thruster.is_RCS           = new_thruster.group_no_RCS = _thruster_added_or_removed = true;
 
             _max_force[(int) new_thruster.nozzle_direction] += new_thruster.max_force;
             _lin_force[(int) new_thruster.nozzle_direction] += new_thruster.max_force;
@@ -895,8 +897,11 @@ namespace ttrcwm
         public void handle_60Hz()
         {
             //screen_text("", string.Format("Manager = {0}, exceptions = {1}, complete = {2}", _thrust_manager_task.valid, (_thrust_manager_task.Exceptions == null) ? 0 : _thrust_manager_task.Exceptions.GetLength(0), _thrust_manager_task.IsComplete), 16, controlled_only: false);
-            if (_grid.Physics == null)
+            if (_grid.Physics == null || _grid.Physics.IsStatic)
+            {
+                _physics_enable_delay = PHYSICS_ENABLE_DELAY;
                 return;
+            }
 
             // Suppress input noise caused by analog controls
             _sample_sum += _target_rotation - _rotation_samples[_current_index];
@@ -912,7 +917,7 @@ namespace ttrcwm
 
         public void handle_4Hz()
         {
-            if (_grid.Physics == null)
+            if (_grid.Physics == null || _grid.Physics.IsStatic)
                 return;
 
             calc_spherical_moment_of_inertia();
@@ -932,7 +937,7 @@ namespace ttrcwm
 
         public void handle_2s_period()
         {
-            if (_grid.Physics == null)
+            if (_grid.Physics == null || _grid.Physics.IsStatic)
                 return;
             check_thruster_control_changed();
             _force_override_refresh = true;
