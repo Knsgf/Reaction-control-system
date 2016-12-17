@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 
 using Sandbox.Game;
-using Sandbox.Game.Gui;
 using Sandbox.ModAPI;
 using VRage.Game;
 using VRage.Game.ModAPI;
@@ -10,8 +9,6 @@ using VRage.Game.ModAPI.Interfaces;
 using VRage.Input;
 using VRage.Utils;
 using VRageMath;
-
-using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttrcwm
 {
@@ -26,7 +23,7 @@ namespace ttrcwm
 
         private IMyCubeGrid                    _grid;
         private HashSet<IMyControllableEntity> _ship_controllers     = new HashSet<IMyControllableEntity>();
-        private HashSet<PB.IMyRemoteControl>   _RC_blocks            = new HashSet<PB.IMyRemoteControl>();
+        private HashSet<IMyRemoteControl>      _RC_blocks            = new HashSet<IMyRemoteControl>();
         private engine_control_unit            _ECU                  = null;
         private Vector3UByte                   _prev_manual_rotation = new Vector3UByte(128, 128, 128);
 
@@ -70,7 +67,7 @@ namespace ttrcwm
                 var controller = entity as IMyControllableEntity;
                 if (controller != null)
                     _ship_controllers.Add(controller);
-                var RC_block = entity as PB.IMyRemoteControl;
+                var RC_block = entity as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Add(RC_block);
 
@@ -101,7 +98,7 @@ namespace ttrcwm
                 var controller = entity as IMyControllableEntity;
                 if (controller != null)
                     _ship_controllers.Remove(controller);
-                var RC_block = entity as PB.IMyRemoteControl;
+                var RC_block = entity as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Remove(RC_block);
 
@@ -165,8 +162,8 @@ namespace ttrcwm
 
             if (_ECU == null)
                 return;
-            /*
-            if (sync_helper.is_spectator_mode_on || MyGuiScreenTerminal.GetCurrentScreen() != MyTerminalPageEnum.None || MyGuiScreenGamePlay.ActiveGameplayScreen != null)
+
+            if (sync_helper.is_spectator_mode_on || MyAPIGateway.Gui.GetCurrentScreen != MyTerminalPageEnum.None || MyAPIGateway.Gui.ChatEntryVisible)
                 manual_rotation = Vector3.Zero;
             else
             {
@@ -180,13 +177,19 @@ namespace ttrcwm
                     manual_rotation.Z = MyAPIGateway.Input.GetRoll();
                 }
             }
+
+            /*
+            var ship_controller = controller as Sandbox.Game.Entities.MyShipController;
+
+            if (ship_controller == null)
+                manual_rotation = Vector3.Zero;
+            else
+            {
+                manual_rotation.X = ship_controller.RotationIndicator.X;
+                manual_rotation.Y = ship_controller.RotationIndicator.Y;
+                manual_rotation.Z = ship_controller.RollIndicator;
+            }
             */
-
-            var ship_controller = (Sandbox.Game.Entities.MyShipController) controller;
-
-            manual_rotation.X = ship_controller.RotationIndicator.X;
-            manual_rotation.Y = ship_controller.RotationIndicator.Y;
-            manual_rotation.Z = ship_controller.RollIndicator;
 
             send_rotation_message(manual_rotation);
             _ECU.translate_rotation_input(manual_rotation, controller);
@@ -288,13 +291,13 @@ namespace ttrcwm
             _grid.GetBlocks(block_list,
                 delegate (IMySlimBlock block)
                 {
-                    return block.FatBlock is PB.IMyCockpit || block.FatBlock is PB.IMyRemoteControl;
+                    return block.FatBlock is IMyCockpit || block.FatBlock is IMyRemoteControl;
                 }
             );
             foreach (var cur_controller in block_list)
             {
                 _ship_controllers.Add((IMyControllableEntity) cur_controller.FatBlock);
-                var RC_block = cur_controller.FatBlock as PB.IMyRemoteControl;
+                var RC_block = cur_controller.FatBlock as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Add(RC_block);
             }

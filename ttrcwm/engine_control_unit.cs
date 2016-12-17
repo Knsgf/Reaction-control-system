@@ -12,8 +12,6 @@ using VRage.Game.ModAPI;
 using VRage.Utils;
 using VRageMath;
 
-using PB = Sandbox.ModAPI.Ingame;
-
 namespace ttrcwm
 {
     class engine_control_unit
@@ -527,7 +525,7 @@ namespace ttrcwm
                 return thrust_dir.dorsal;
             if (dir_vector == Vector3I.Down)
                 return thrust_dir.ventral;
-            throw new ArgumentException("Thruster " + ((PB.IMyTerminalBlock) thruster).CustomName  + " is not grid-aligned");
+            throw new ArgumentException("Thruster " + ((IMyTerminalBlock) thruster).CustomName  + " is not grid-aligned");
         }
 
         private void update_reference_vectors()
@@ -862,7 +860,7 @@ namespace ttrcwm
             return controller != null && controller.CubeGrid == _grid;
         }
 
-        public void check_autopilot(PB.IMyRemoteControl RC_block)
+        public void check_autopilot(IMyRemoteControl RC_block)
         {
             var RC_block_proper = (MyRemoteControl) RC_block;
             autopilot_on       |= ((MyObjectBuilder_RemoteControl) RC_block_proper.GetObjectBuilderCubeBlock()).AutoPilotEnabled;
