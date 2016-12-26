@@ -19,7 +19,7 @@ namespace ttrcwm
         #region fields
 
         const int   NUM_ROTATION_SAMPLES = 6, PHYSICS_ENABLE_DELAY = 6;
-        const float MAX_ACCELERATION     = 0.2f;
+        const float MAX_THRUST_LEVEL     = 0.2f;
 
         enum thrust_dir { fore = 0, aft = 3, starboard = 1, port = 4, dorsal = 2, ventral = 5 };
         class thruster_info     // Technically a struct
@@ -35,7 +35,8 @@ namespace ttrcwm
         private static float[] __control_vector    = new float[6];
         private static float[] __actual_force      = new float[6];
         private static float[] __linear_component  = new float[6];
-        private static float[] __acceleration      = new float[6];
+        //private static float[] __braking_vector    = new float[6];
+        private static float[] __thrust_vector     = new float[6];
         private static float[] __counter_gravity   = new float[6];
         private static float[] __cur_firing_vector = new float[6];
         private static float[] __settings          = new float[6];
@@ -69,7 +70,7 @@ namespace ttrcwm
         private MatrixD  _inverse_world_transform;
         private float    _max_gyro_torque = 0.0f, _spherical_moment_of_inertia;
 
-        private Vector3 _manual_rotation, _prev_rotation, _target_rotation, _gyro_override = Vector3.Zero, _prev_linear_velocity = Vector3.Zero, _local_angular_velocity;
+        private Vector3 _manual_thrust, _manual_rotation, _prev_rotation, _target_rotation, _gyro_override = Vector3.Zero, _local_angular_velocity;
         private bool    _is_gyro_override_active = false, _all_engines_off = false, _under_player_control = false, _rotation_active = false, _thruster_added_or_removed = false;
         private bool    _force_override_refresh = false;
 
@@ -282,25 +283,19 @@ namespace ttrcwm
 
         private void fill_control_sets(thruster_info cur_thruster_info)
         {
-
-            //for (dir_index = 0; dir_index < 6; ++dir_index)
-            //    __cur_firing_vector[dir_index] = 0.0f;
-            //dir_index = 0;
             if (cur_thruster_info.reference_vector.LengthSquared() < _grid.GridSize * _grid.GridSize)
                 return;
 
             Vector3 sample_vector, reference_norm = Vector3.Normalize(cur_thruster_info.reference_vector);
-            int dir_index = 0;
-            do
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
                 __cur_firing_vector[dir_index] = 1.0f;
                 recompose_vector(__cur_firing_vector, out sample_vector);
                 decompose_vector(Vector3.Cross(sample_vector, reference_norm), __linear_component);
-                if (__linear_component[(int)cur_thruster_info.nozzle_direction] > 0.0f)
+                if (__linear_component[(int) cur_thruster_info.nozzle_direction] > 0.0f)
                     _control_sets[dir_index].Add(cur_thruster_info);
-                __cur_firing_vector[dir_index++] = 0.0f;
+                __cur_firing_vector[dir_index] = 0.0f;
             }
-            while (dir_index < 6);
         }
 
         private void refresh_control_sets()
@@ -316,8 +311,9 @@ namespace ttrcwm
 
         private void apply_thrust_settings(bool reset_all_thrusters)
         {
+            const float MIN_OVERRIDE = 1.001f;
             float         setting;
-            int           setting_int;
+            int           setting_int, thruster_dir, opposite_dir;
             bool          dry_run;
             thruster_info cur_thruster_info;
 
@@ -356,7 +352,11 @@ namespace ttrcwm
                         continue;
                     }
 
-                    setting     = cur_thruster_info.current_setting * 100.0f;
+                    setting      = cur_thruster_info.current_setting * 100.0f;
+                    thruster_dir = (int) cur_thruster_info.nozzle_direction;
+                    opposite_dir = (thruster_dir < 3) ? (thruster_dir + 3) : (thruster_dir - 3);
+                    if (_rotation_active && setting < MIN_OVERRIDE && __thrust_vector[thruster_dir] < MAX_THRUST_LEVEL && __thrust_vector[opposite_dir] < MAX_THRUST_LEVEL)
+                        setting = MIN_OVERRIDE;
                     setting_int = (int) Math.Ceiling(setting);
                     if (setting_int != cur_thruster_info.prev_setting)
                     {
@@ -444,35 +444,39 @@ namespace ttrcwm
                 desirted_angular_velocity = _manual_rotation * 2.0f + local_velocity_projection - local_velocity_rejection;
             }
 
-            _rotation_active = desirted_angular_velocity.LengthSquared() > 0.0001f;
+            _rotation_active = desirted_angular_velocity.LengthSquared() > 0.0005f;
             if (!_rotation_active || _is_gyro_override_active || autopilot_on)
             {
-                _prev_linear_velocity = _grid.Physics.LinearVelocity;
                 apply_thrust_settings(reset_all_thrusters: true);
                 return;
             }
             decompose_vector(desirted_angular_velocity, __control_vector);
 
-            Vector3 linear_acceleration = (_grid.Physics.LinearVelocity - _prev_linear_velocity) * MyEngineConstants.UPDATE_STEPS_PER_SECOND;
-            _prev_linear_velocity       = _grid.Physics.LinearVelocity;
-            Vector3 local_gravity_force;
-            if (linear_dampers_on)
-                local_gravity_force = Vector3.Transform(_grid.Physics.Gravity * _grid.Physics.Mass, inverse_world_rotation);
+            Vector3 local_gravity_force/*, linear_damping*/;
+            if (!linear_dampers_on)
+                local_gravity_force = /*linear_damping =*/ Vector3.Zero;
             else
             {
-                linear_acceleration -= _grid.Physics.Gravity;   // Use proper, i. e. free-fall-relative acceleration when dampers are off
-                local_gravity_force  = Vector3.Zero;
+                local_gravity_force = Vector3.Transform(_grid.Physics.Gravity * _grid.Physics.Mass, inverse_world_rotation);
+                //linear_damping      = (-2.0f * _grid.Physics.Mass) * Vector3.Transform(_grid.Physics.LinearVelocity, inverse_world_rotation);
             }
-            linear_acceleration = Vector3.Transform(linear_acceleration, inverse_world_rotation);
-            decompose_vector( linear_acceleration, __acceleration   );
+            //decompose_vector(      linear_damping, __braking_vector );
+            decompose_vector(      _manual_thrust, __thrust_vector  );
             decompose_vector(-local_gravity_force, __counter_gravity);
 
+            /*
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                if (_lin_force[dir_index] >= 1.0f)
+                    __thrust_vector[dir_index] += __braking_vector[dir_index] / _lin_force[dir_index];
+            }
+            */
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
                 int   opposite_dir = (dir_index < 3) ? (dir_index + 3) : (dir_index - 3);
                 float initial_setting;
 
-                if (__acceleration[dir_index] < MAX_ACCELERATION && __acceleration[opposite_dir] < MAX_ACCELERATION)
+                if (__thrust_vector[dir_index] < MAX_THRUST_LEVEL && __thrust_vector[opposite_dir] < MAX_THRUST_LEVEL)
                     initial_setting = (_lin_force[dir_index] >= 1.0f) ? (__counter_gravity[dir_index] / _lin_force[dir_index]) : 0.0f;
                 else
                     initial_setting = 0.0f;
@@ -493,7 +497,7 @@ namespace ttrcwm
 
                     thruster_dir = (int) cur_thruster_info.nozzle_direction;
                     opposite_dir = (thruster_dir < 3) ? (thruster_dir + 3) : (thruster_dir - 3);
-                    if (__acceleration[thruster_dir] < MAX_ACCELERATION && __acceleration[opposite_dir] < MAX_ACCELERATION)
+                    if (__thrust_vector[thruster_dir] < MAX_THRUST_LEVEL && __thrust_vector[opposite_dir] < MAX_THRUST_LEVEL)
                     {
                         cur_thruster_info.current_setting += __settings[thruster_dir];
                         if (cur_thruster_info.current_setting > 1.0f)
@@ -870,6 +874,21 @@ namespace ttrcwm
         {
             _manual_rotation       = _target_rotation = Vector3.Zero;
             _under_player_control &= reset_gyros_only;
+        }
+
+        public void translate_linear_input(Vector3 input_thrust, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
+        {
+            var controller = current_controller as MyShipController;
+            if (controller?.CubeGrid != _grid)
+            {
+                reset_user_input(reset_gyros_only: false);
+                return;
+            }
+
+            Matrix cockpit_matrix;
+            controller.Orientation.GetMatrix(out cockpit_matrix);
+            _manual_thrust        = Vector3.Clamp(Vector3.Transform(input_thrust, cockpit_matrix), -Vector3.One, Vector3.One);
+            _under_player_control = true;
         }
 
         public void translate_rotation_input(Vector3 input_rotation, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)

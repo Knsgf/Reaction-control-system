@@ -118,6 +118,7 @@ namespace ttrcwm
             }
         }
 
+        /*
         internal static void rotation_message_handler(byte[] argument)
         {
             grid_logic instance = sync_helper.decode_entity_id(argument);
@@ -133,11 +134,13 @@ namespace ttrcwm
             instance._ECU.translate_rotation_input(manual_rotation, controlling_player.Controller.ControlledEntity);
             instance._zero_controls_counter = 0;
         }
+        */
 
         #endregion
 
         #region event triggers
 
+        /*
         private void send_rotation_message(Vector3 manual_rotation)
         {
             if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
@@ -153,16 +156,18 @@ namespace ttrcwm
             _prev_manual_rotation = packed_vector;
             MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.ROTATION_MESSAGE_ID, long_message);
         }
+        */
 
         #endregion
 
         private void handle_user_input(IMyControllableEntity controller)
         {
-            Vector3 manual_rotation;
+            Vector3 manual_rotation, manual_thrust;
 
             if (_ECU == null)
                 return;
 
+            /*
             if (sync_helper.is_spectator_mode_on || MyAPIGateway.Gui.GetCurrentScreen != MyTerminalPageEnum.None || MyAPIGateway.Gui.ChatEntryVisible)
                 manual_rotation = Vector3.Zero;
             else
@@ -177,22 +182,23 @@ namespace ttrcwm
                     manual_rotation.Z = MyAPIGateway.Input.GetRoll();
                 }
             }
+            */
 
-            /*
-            var ship_controller = controller as Sandbox.Game.Entities.MyShipController;
+            var ship_controller = controller as Sandbox.ModAPI.Ingame.IMyShipController;
 
             if (ship_controller == null)
-                manual_rotation = Vector3.Zero;
+                manual_rotation = manual_thrust = Vector3.Zero;
             else
             {
+                manual_thrust     = ship_controller.MoveIndicator;
                 manual_rotation.X = ship_controller.RotationIndicator.X;
                 manual_rotation.Y = ship_controller.RotationIndicator.Y;
                 manual_rotation.Z = ship_controller.RollIndicator;
             }
-            */
 
-            send_rotation_message(manual_rotation);
+            //send_rotation_message(manual_rotation);
             _ECU.translate_rotation_input(manual_rotation, controller);
+            _ECU.translate_linear_input  (manual_thrust  , controller);
             _zero_controls_counter = 0;
         }
 
