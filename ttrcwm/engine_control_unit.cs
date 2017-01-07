@@ -40,6 +40,8 @@ namespace ttrcwm
         private static float[] __counter_gravity   = new float[6];
         private static float[] __cur_firing_vector = new float[6];
         private static float[] __settings          = new float[6];
+        private static float[] __linear_velocity   = new float[6];
+        private static  bool[] __rotation_enable   = new  bool[6];
 
         private MyCubeGrid _grid;
 
@@ -314,7 +316,7 @@ namespace ttrcwm
             const float MIN_OVERRIDE = 1.001f;
             float         setting;
             int           setting_int, thruster_dir, opposite_dir;
-            bool          dry_run;
+            bool          dry_run, reset_thrusters;
             thruster_info cur_thruster_info;
 
             if (reset_all_thrusters && _all_engines_off && !_force_override_refresh)
@@ -333,6 +335,7 @@ namespace ttrcwm
 
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
+                reset_thrusters = reset_all_thrusters || !__rotation_enable[dir_index];
                 foreach (var cur_thruster in _thrusters[dir_index])
                 {
                     cur_thruster_info = cur_thruster.Value;
@@ -341,7 +344,7 @@ namespace ttrcwm
 
                     if (_force_override_refresh)
                         cur_thruster_info.prev_setting = (int) Math.Ceiling(cur_thruster.Key.CurrentStrength * 100.0f);
-                    if (reset_all_thrusters || !cur_thruster_info.is_RCS || cur_thruster_info.actual_max_force < 1.0f || !cur_thruster.Key.IsWorking)
+                    if (reset_thrusters || !cur_thruster_info.is_RCS || cur_thruster_info.actual_max_force < 1.0f || !cur_thruster.Key.IsWorking)
                     {
                         if (cur_thruster_info.prev_setting != 0)
                         {
@@ -430,7 +433,7 @@ namespace ttrcwm
             Matrix inverse_world_rotation   = _inverse_world_transform.GetOrientation();
             _local_angular_velocity         = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
             float   manual_rotation_length2 = _manual_rotation.LengthSquared();
-            Vector3 desirted_angular_velocity;
+            Vector3 desirted_angular_velocity, local_linear_velocity = Vector3.Transform(_grid.Physics.LinearVelocity, inverse_world_rotation);
             if (manual_rotation_length2 <= 0.0001f)
                 desirted_angular_velocity = -_local_angular_velocity;
             else
@@ -444,13 +447,24 @@ namespace ttrcwm
                 desirted_angular_velocity = _manual_rotation * 2.0f + local_velocity_projection - local_velocity_rejection;
             }
 
-            _rotation_active = desirted_angular_velocity.LengthSquared() > 0.0005f;
+            _rotation_active = desirted_angular_velocity.LengthSquared() >= 0.0005f;
             if (!_rotation_active || _is_gyro_override_active || autopilot_on)
             {
                 apply_thrust_settings(reset_all_thrusters: true);
                 return;
             }
             decompose_vector(desirted_angular_velocity, __control_vector);
+            decompose_vector(    local_linear_velocity, __linear_velocity);
+            float min_control      = (!linear_dampers_on || local_linear_velocity.LengthSquared() <= 1.0f) ? 0.02f : 0.3f,
+                longitudinal_speed = __linear_velocity[(int) thrust_dir.fore  ] + __linear_velocity[(int) thrust_dir.aft      ],
+                     lateral_speed = __linear_velocity[(int) thrust_dir.port  ] + __linear_velocity[(int) thrust_dir.starboard],
+                    vertical_speed = __linear_velocity[(int) thrust_dir.dorsal] + __linear_velocity[(int) thrust_dir.ventral  ];
+            bool pitch_control_on = __control_vector[(int) thrust_dir.port  ] + __control_vector[(int) thrust_dir.starboard] >= min_control,
+                   yaw_control_on = __control_vector[(int) thrust_dir.dorsal] + __control_vector[(int) thrust_dir.ventral  ] >= min_control,
+                  roll_control_on = __control_vector[(int) thrust_dir.fore  ] + __control_vector[(int) thrust_dir.aft      ] >= min_control;
+            __rotation_enable[(int) thrust_dir.fore  ] = __rotation_enable[(int) thrust_dir.aft      ] = pitch_control_on || yaw_control_on  || longitudinal_speed <= 1.0f;
+            __rotation_enable[(int) thrust_dir.port  ] = __rotation_enable[(int) thrust_dir.starboard] =   yaw_control_on || roll_control_on ||      lateral_speed <= 1.0f;
+            __rotation_enable[(int) thrust_dir.dorsal] = __rotation_enable[(int) thrust_dir.ventral  ] = pitch_control_on || roll_control_on ||     vertical_speed <= 1.0f;
 
             Vector3 local_gravity_force/*, linear_damping*/;
             if (!linear_dampers_on)
@@ -583,7 +597,15 @@ namespace ttrcwm
                     cur_thruster.Value.group_no_RCS = false;
             }
 
-            List<MyObjectBuilder_BlockGroup> all_groups = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).BlockGroups;
+            List<MyObjectBuilder_BlockGroup> all_groups;
+            try
+            {
+                all_groups = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).BlockGroups;
+            }
+            catch (NullReferenceException dummy)
+            {
+                return;
+            }
             foreach (var cur_group in all_groups)
             {
                 IMySlimBlock cur_block;
@@ -594,7 +616,7 @@ namespace ttrcwm
                     foreach (var cur_block_location in cur_group.Blocks)
                     {
                         cur_block = _grid.GetCubeBlock(cur_block_location);
-                        if (cur_block == null || cur_block.FatBlock == null)
+                        if (cur_block?.FatBlock == null)
                             continue;
                         cur_thruster = cur_block.FatBlock as MyThrust;
                         if (cur_thruster == null)

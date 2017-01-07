@@ -83,7 +83,7 @@ namespace ttrcwm
             */
 
             local_player     = MyAPIGateway.Session.LocalHumanPlayer;
-            local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
+            local_controller = local_player?.Controller.ControlledEntity;
         }
     }
 }
