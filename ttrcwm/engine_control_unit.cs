@@ -888,8 +888,9 @@ namespace ttrcwm
 
         public void check_autopilot(IMyRemoteControl RC_block)
         {
-            var RC_block_proper = (MyRemoteControl) RC_block;
-            autopilot_on       |= ((MyObjectBuilder_RemoteControl) RC_block_proper.GetObjectBuilderCubeBlock()).AutoPilotEnabled;
+            //var RC_block_proper = (MyRemoteControl) RC_block;
+            //autopilot_on       |= ((MyObjectBuilder_RemoteControl) RC_block_proper.GetObjectBuilderCubeBlock()).AutoPilotEnabled;
+            autopilot_on |= RC_block.IsAutoPilotEnabled;
         }
 
         public void reset_user_input(bool reset_gyros_only)
