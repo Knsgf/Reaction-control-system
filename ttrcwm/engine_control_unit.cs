@@ -44,6 +44,8 @@ namespace ttrcwm
         private static  bool[] __rotation_enable   = new  bool[6];
 
         private MyCubeGrid _grid;
+        private List<IMyBlockGroup   > _all_groups      = new List<IMyBlockGroup   >();
+        private List<IMyTerminalBlock> _blocks_in_group = new List<IMyTerminalBlock>();
 
         private Dictionary<MyThrust, thruster_info>[] _thrusters =
         {
@@ -597,28 +599,23 @@ namespace ttrcwm
                     cur_thruster.Value.group_no_RCS = false;
             }
 
-            List<MyObjectBuilder_BlockGroup> all_groups;
-            try
-            {
-                all_groups = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).BlockGroups;
-            }
-            catch (NullReferenceException dummy)
-            {
+            IMyGridTerminalSystem grid_terminal = MyAPIGateway.TerminalActionsHelper?.GetTerminalSystemForGrid(_grid);
+            if (grid_terminal == null)
                 return;
-            }
-            foreach (var cur_group in all_groups)
+            _all_groups.Clear();
+            grid_terminal.GetBlockGroups(_all_groups);
+
+            foreach (var cur_group in _all_groups)
             {
-                IMySlimBlock cur_block;
-                MyThrust     cur_thruster;
+                MyThrust cur_thruster;
 
                 if (cur_group.Name.ToUpper().Contains("[NO RCS]"))
                 {
-                    foreach (var cur_block_location in cur_group.Blocks)
+                    _blocks_in_group.Clear();
+                    cur_group.GetBlocks(_blocks_in_group);
+                    foreach (var cur_block in _blocks_in_group)
                     {
-                        cur_block = _grid.GetCubeBlock(cur_block_location);
-                        if (cur_block?.FatBlock == null)
-                            continue;
-                        cur_thruster = cur_block.FatBlock as MyThrust;
+                        cur_thruster = cur_block as MyThrust;
                         if (cur_thruster == null)
                             continue;
                         foreach (var cur_direction in _thrusters)
@@ -640,19 +637,17 @@ namespace ttrcwm
                 foreach (var cur_thruster in cur_direction)
                 {
                     cur_thruster_info = cur_thruster.Value;
-                    if (cur_thruster_info.actual_max_force >= 0.01f * cur_thruster_info.max_force && cur_thruster.Key.IsWorking)
-                    {
-                        if (!cur_thruster_info.is_RCS && !cur_thruster_info.group_no_RCS)
-                            cur_thruster_info.is_RCS = changes_made = true;
-                    }
-                    else
-                    {
-                        if (!cur_thruster_info.override_cleared)
-                        {
-                            cur_thruster.Key.SetValueFloat("Override", 0.0f);
-                            cur_thruster_info.override_cleared = changes_made = true;
-                        }
+                    if (cur_thruster_info.actual_max_force < 0.01f * cur_thruster_info.max_force || !cur_thruster.Key.IsWorking)
                         cur_thruster_info.is_RCS = false;
+                    else if (!(cur_thruster_info.is_RCS ^ cur_thruster_info.group_no_RCS))
+                    {
+                        cur_thruster_info.is_RCS = !cur_thruster_info.group_no_RCS;
+                        changes_made             = true;
+                    }
+                    if (!cur_thruster_info.is_RCS && !cur_thruster_info.override_cleared)
+                    {
+                        cur_thruster.Key.SetValueFloat("Override", 0.0f);
+                        cur_thruster_info.override_cleared = changes_made = true;
                     }
                 }
             }
