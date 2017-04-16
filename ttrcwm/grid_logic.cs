@@ -213,7 +213,7 @@ namespace ttrcwm
                     _ECU.reset_user_input(reset_gyros_only: false);
                     _prev_manual_rotation = Vector3UByte.Zero;
                 }
-                else if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
+                else //if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     handle_user_input(controlling_player.Controller.ControlledEntity);
 
                 _ID_on = false;
